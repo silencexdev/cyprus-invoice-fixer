@@ -1,0 +1,32 @@
+version: '3.9'
+
+# Development override — mounts source, hot reload
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: ./backend
+      target: development
+    volumes:
+      - ./backend:/app
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+    command: dotnet watch run --project CyprusInvoiceFixer.Api
+
+  frontend:
+    build:
+      context: ./frontend
+      target: development
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0
+    ports:
+      - "3000:5173"

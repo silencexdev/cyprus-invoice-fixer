@@ -1,0 +1,28 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.log
+TestResults/
+
+# Node / React
+node_modules/
+dist/
+build/
+.env.local
+.env.production
+
+# Docker
+.docker/
+
+# Secrets
+*.pfx
+*.key
+appsettings.Development.json
+.env
+
+# OS
+.DS_Store
+Thumbs.db
