@@ -1,0 +1,40 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Create release archive
+        run: |
+          mkdir -p release
+          cp docker-compose.yml release/
+          cp .env.example release/
+          cp setup.sh release/
+          chmod +x release/setup.sh
+          tar -czf cyprus-invoice-fixer-${{ github.ref_name }}.tar.gz -C release .
+          zip -j cyprus-invoice-fixer-${{ github.ref_name }}.zip release/*
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Cyprus Invoice Fixer ${{ github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: |
+            cyprus-invoice-fixer-${{ github.ref_name }}.tar.gz
+            cyprus-invoice-fixer-${{ github.ref_name }}.zip
+          draft: false
+          prerelease: false
