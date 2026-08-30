@@ -18,15 +18,14 @@ public class SetupController : ControllerBase
     }
 
     [HttpGet("status")]
-    public IActionResult Status() => Ok(new { configured = File.Exists(SetupFlagPath) });
+    public IActionResult Status() => Ok(new { configured = System.IO.File.Exists(SetupFlagPath) });
 
     [HttpPost("configure")]
     public IActionResult Configure([FromBody] SetupRequest req)
     {
-        if (File.Exists(SetupFlagPath))
+        if (System.IO.File.Exists(SetupFlagPath))
             return BadRequest(new { error = "Already configured. Delete .setup_complete to reconfigure." });
 
-        // Write appsettings.Production.json with user-supplied values
         var settings = new Dictionary<string, object>
         {
             ["ConnectionStrings"] = new Dictionary<string, string>
