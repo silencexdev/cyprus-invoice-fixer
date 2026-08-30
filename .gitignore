@@ -4,24 +4,19 @@ obj/
 *.user
 *.suo
 .vs/
+logs/
 *.log
-TestResults/
 
-# Node / React
+# Node
 node_modules/
-dist/
-build/
+.next/
+.env
 .env.local
 .env.production
+npm-debug.log*
 
 # Docker
-.docker/
-
-# Secrets
-*.pfx
-*.key
-appsettings.Development.json
-.env
+*.override.yml
 
 # OS
 .DS_Store
