@@ -38,7 +38,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(
 var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET")
     ?? builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("JWT_SECRET is required");
-var jwtIssuer = Environment.GetEnvironmentVariable("JWT_ISSUER") ?? "CyprusInvoiceFixer";
+var jwtIssuer   = Environment.GetEnvironmentVariable("JWT_ISSUER")   ?? "CyprusInvoiceFixer";
 var jwtAudience = Environment.GetEnvironmentVariable("JWT_AUDIENCE") ?? "CyprusInvoiceFixerUsers";
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -46,13 +46,14 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     {
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
-            ValidateAudience = true,
-            ValidateLifetime = true,
+            ValidateIssuer           = true,
+            ValidateAudience         = true,
+            ValidateLifetime         = true,
             ValidateIssuerSigningKey = true,
-            ValidIssuer = jwtIssuer,
-            ValidAudience = jwtAudience,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret))
+            ValidIssuer              = jwtIssuer,
+            ValidAudience            = jwtAudience,
+            IssuerSigningKey         = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
+            NameClaimType            = System.Security.Claims.ClaimTypes.NameIdentifier
         };
     });
 builder.Services.AddAuthorization();
@@ -73,6 +74,7 @@ builder.Services.AddScoped<IInvoiceService, InvoiceService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IPdfService, PdfService>();
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
+builder.Services.AddScoped<IStripeService, StripeService>();
 
 // AI provider selection
 var aiProvider = Environment.GetEnvironmentVariable("AI_PROVIDER") ?? "openai";
@@ -91,24 +93,30 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new OpenApiInfo
     {
-        Title = "Cyprus Invoice Fixer API",
-        Version = "v1",
+        Title       = "Cyprus Invoice Fixer API",
+        Version     = "v1",
         Description = "AI-powered Cyprus VAT invoice checker and fixer"
     });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
-        In = ParameterLocation.Header,
+        In          = ParameterLocation.Header,
         Description = "Enter: Bearer {token}",
-        Name = "Authorization",
-        Type = SecuritySchemeType.ApiKey
+        Name        = "Authorization",
+        Type        = SecuritySchemeType.ApiKey
     });
     c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new OpenApiSecurityScheme { Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" } },
+            new OpenApiSecurityScheme
+            {
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
+            },
             Array.Empty<string>()
         }
     });
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath)) c.IncludeXmlComments(xmlPath);
 });
 
 var app = builder.Build();
