@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CyprusInvoiceFixer.Core\CyprusInvoiceFixer.Core.csproj" />
-    <ProjectReference Include="..\CyprusInvoiceFixer.Api\CyprusInvoiceFixer.Api.csproj" />
+    <ProjectReference Include="../CyprusInvoiceFixer.Core/CyprusInvoiceFixer.Core.csproj" />
+    <ProjectReference Include="../CyprusInvoiceFixer.Api/CyprusInvoiceFixer.Api.csproj" />
   </ItemGroup>
 
   <ItemGroup>
