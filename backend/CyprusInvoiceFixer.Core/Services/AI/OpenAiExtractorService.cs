@@ -31,17 +31,17 @@ public class OpenAiExtractorService : IAiExtractorService
         return await ExtractFromTextAsync(text, ct);
     }
 
-    private static string BuildPrompt(string rawText) => $"""
+    private static string BuildPrompt(string rawText) => $$"""
         You are a Cyprus VAT invoice parser. Extract all invoice fields from the text below and return ONLY a JSON object.
         Required fields (use null if missing):
         supplierName, supplierVatNumber, supplierAddress,
         customerName, customerVatNumber, customerAddress,
         invoiceNumber, invoiceDate (ISO 8601), dueDate (ISO 8601),
         subtotal, vatRate (number e.g. 19), vatAmount, total, currency (default EUR),
-        lineItems: [ {{ description, quantity, unitPrice }} ],
+        lineItems: [ { description, quantity, unitPrice } ],
         aiNotes (any observations or warnings about the invoice).
         Invoice text:
-        {rawText}
+        {{rawText}}
         """;
 
     private static InvoiceExtractResult ParseResponse(string json)
