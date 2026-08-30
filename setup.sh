@@ -41,6 +41,39 @@ install_pkg() {
   fi
 }
 
+# ── launch_app (defined early so it can be called anywhere) ───────────
+launch_app() {
+  echo -e "\n${BLUE}⚙  Building and starting containers...${NC}"
+  if [ "${AI_PROVIDER:-ollama}" = "ollama" ]; then
+    COMPOSE_PROFILES=ollama docker compose up --build -d
+    echo -e "${YELLOW}⚡ Pulling Ollama model ${OLLAMA_MODEL:-llama3} (first run may take a few minutes)...${NC}"
+    sleep 8
+    docker compose exec ollama ollama pull "${OLLAMA_MODEL:-llama3}" || \
+      echo -e "${YELLOW}  Model pull will retry on first use.${NC}"
+  else
+    docker compose up --build -d
+  fi
+
+  echo -e "\n${BLUE}⏳ Waiting for API to be ready...${NC}"
+  for i in $(seq 1 30); do
+    if curl -sf http://localhost:5000/health &>/dev/null; then break; fi
+    sleep 2; echo -n "."
+  done
+  echo ""
+
+  echo -e "
+${GREEN}╔══════════════════════════════════════════╗
+║  ✅ Cyprus Invoice Fixer is running!     ║
+╠══════════════════════════════════════════╣
+║  🌐 App : ${FRONTEND_URL:-http://localhost:3000}
+║  📖 API : http://localhost:5000/swagger
+╚══════════════════════════════════════════╝${NC}
+"
+  if command -v xdg-open &>/dev/null; then xdg-open "${FRONTEND_URL:-http://localhost:3000}" 2>/dev/null &
+  elif command -v open &>/dev/null; then open "${FRONTEND_URL:-http://localhost:3000}" 2>/dev/null &
+  fi
+}
+
 # ── Check & install Git ───────────────────────────────────────
 if ! command -v git &>/dev/null; then
   echo -e "${YELLOW}⚙  Git not found. Installing...${NC}"
@@ -196,42 +229,4 @@ EOF
 
 echo -e "\n${GREEN}✓ .env created${NC}"
 
-# ── Launch ────────────────────────────────────────────────────
-launch_app() {
-  echo -e "\n${BLUE}⚙  Building and starting containers...${NC}"
-  if [ "${AI_PROVIDER:-openai}" = "ollama" ]; then
-    COMPOSE_PROFILES=ollama docker compose up --build -d
-    echo -e "${YELLOW}⚡ Pulling Ollama model ${OLLAMA_MODEL:-llama3} (this may take a few minutes on first run)...${NC}"
-    sleep 8
-    docker compose exec ollama ollama pull "${OLLAMA_MODEL:-llama3}" || \
-      echo -e "${YELLOW}  Model pull will retry on first use.${NC}"
-  else
-    docker compose up --build -d
-  fi
-}
-
 launch_app
-
-# ── Wait for API health ───────────────────────────────────────
-echo -e "\n${BLUE}⏳ Waiting for API to be ready...${NC}"
-for i in $(seq 1 30); do
-  if curl -sf http://localhost:5000/health &>/dev/null; then
-    break
-  fi
-  sleep 2
-  echo -n "."
-done
-echo ""
-
-echo -e "
-${GREEN}╔══════════════════════════════════════════╗
-║  ✅ Cyprus Invoice Fixer is running!     ║
-╠══════════════════════════════════════════╣
-║  🌐 App : ${FRONTEND_URL}
-║  📖 API : http://localhost:5000/swagger
-╚══════════════════════════════════════════╝${NC}
-"
-
-if command -v xdg-open &>/dev/null; then xdg-open "${FRONTEND_URL}" 2>/dev/null &
-elif command -v open &>/dev/null; then open "${FRONTEND_URL}" 2>/dev/null &
-fi
