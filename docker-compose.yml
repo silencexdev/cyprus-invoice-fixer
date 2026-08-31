@@ -1,17 +1,15 @@
-version: '3.9'
-
 services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
     environment:
       POSTGRES_DB: cyprusInvoiceFixer
-      POSTGRES_USER: appuser
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U appuser"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-appuser}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,8 +36,19 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ASPNETCORE_URLS: http://+:8080
-      ConnectionStrings__DefaultConnection: Host=db;Database=cyprusInvoiceFixer;Username=appuser;Password=${POSTGRES_PASSWORD:-changeme}
+      ConnectionStrings__DefaultConnection: Host=db;Database=cyprusInvoiceFixer;Username=${POSTGRES_USER:-appuser};Password=${POSTGRES_PASSWORD:-changeme}
       REDIS_URL: redis:6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_ISSUER: ${JWT_ISSUER:-CyprusInvoiceFixer}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-CyprusInvoiceFixerUsers}
+      AI_PROVIDER: ${AI_PROVIDER:-ollama}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      STRIPE_PRICE_ID: ${STRIPE_PRICE_ID:-}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
     volumes:
       - api_data:/app/data
     ports:
