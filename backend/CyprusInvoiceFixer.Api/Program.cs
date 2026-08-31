@@ -126,7 +126,7 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// ========== Migrations with retry (fixes DB race condition on cold start) ==========
+// ========== Migrations with retry + schema drift self-heal ==========
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -136,6 +136,41 @@ using (var scope = app.Services.CreateScope())
         try
         {
             Log.Information("Applying migrations (attempt {Attempt}/{Max})...", attempt, maxRetries);
+
+            // Self-heal: if __EFMigrationsHistory says everything is applied but tables are
+            // actually missing (stale history from a wiped-then-recreated volume), clear the
+            // history so Migrate() re-runs all migrations against the real schema.
+            var conn = db.Database.GetDbConnection();
+            await conn.OpenAsync();
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = @"
+                    SELECT EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = '__EFMigrationsHistory'
+                    ) AS history_exists,
+                    EXISTS (
+                        SELECT 1 FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = 'Users'
+                    ) AS users_table_exists;";
+                using var reader = await cmd.ExecuteReaderAsync();
+                if (await reader.ReadAsync())
+                {
+                    var historyExists = reader.GetBoolean(0);
+                    var usersExists   = reader.GetBoolean(1);
+                    reader.Close();
+
+                    if (historyExists && !usersExists)
+                    {
+                        Log.Warning("Schema drift detected: migration history exists but tables are missing. Clearing migration history to force re-apply.");
+                        using var clearCmd = conn.CreateCommand();
+                        clearCmd.CommandText = "TRUNCATE TABLE \"__EFMigrationsHistory\";";
+                        await clearCmd.ExecuteNonQueryAsync();
+                    }
+                }
+            }
+            await conn.CloseAsync();
+
             db.Database.Migrate();
             Log.Information("Migrations applied successfully.");
             break;
