@@ -9,6 +9,7 @@ using Microsoft.OpenApi.Models;
 using Serilog;
 using StackExchange.Redis;
 using System.Text;
+using System.Text.Json.Serialization;
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using QuestPDF.Infrastructure;
@@ -92,7 +93,12 @@ builder.Services.AddValidatorsFromAssemblyContaining<Program>();
 builder.Services.AddFluentValidationAutoValidation();
 
 // ========== Controllers + Swagger ==========
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+    {
+        // Prevent infinite loops from EF navigation back-references (e.g. Invoice -> User -> Invoices)
+        options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
