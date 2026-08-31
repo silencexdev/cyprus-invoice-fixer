@@ -63,10 +63,20 @@ var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
-        policy.WithOrigins(frontendUrl)
-              .AllowAnyHeader()
+    {
+        // In development allow any localhost origin to avoid origin mismatch
+        // (e.g. FRONTEND_URL=http://localhost:3000 but browser sends http://127.0.0.1:3000)
+        var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"
+                    || builder.Environment.IsDevelopment();
+        if (isDev)
+            policy.SetIsOriginAllowed(_ => true);
+        else
+            policy.WithOrigins(frontendUrl);
+
+        policy.AllowAnyHeader()
               .AllowAnyMethod()
-              .AllowCredentials());
+              .AllowCredentials();
+    });
 });
 
 // ========== Services ==========
@@ -128,16 +138,20 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+// Swagger always enabled (API is internal / Docker-only)
+app.UseSwagger();
+app.UseSwaggerUI();
 
 app.UseSerilogRequestLogging();
+
+// CORS must be before auth middleware
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Health endpoint for setup.sh readiness check
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+
 app.MapControllers();
 
 app.Run();
