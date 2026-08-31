@@ -127,59 +127,69 @@ builder.Services.AddSwaggerGen(c =>
 var app = builder.Build();
 
 // ========== Migrations with retry + schema drift self-heal ==========
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    var maxRetries = 10;
-    for (var attempt = 1; attempt <= maxRetries; attempt++)
-    {
-        try
-        {
-            Log.Information("Applying migrations (attempt {Attempt}/{Max})...", attempt, maxRetries);
+var dbOptions = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<DbContextOptions<AppDbContext>>>()
+    ?? null; // not used directly — we use the factory below
 
-            // Self-heal: if __EFMigrationsHistory says everything is applied but tables are
-            // actually missing (stale history from a wiped-then-recreated volume), clear the
-            // history so Migrate() re-runs all migrations against the real schema.
-            var conn = db.Database.GetDbConnection();
-            await conn.OpenAsync();
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = @"
-                    SELECT EXISTS (
+var maxRetries = 10;
+for (var attempt = 1; attempt <= maxRetries; attempt++)
+{
+    try
+    {
+        Log.Information("Applying migrations (attempt {Attempt}/{Max})...", attempt, maxRetries);
+
+        // Step 1: Use a raw connection to detect drift and fix history.
+        // We do this OUTSIDE of any AppDbContext so EF has no cached state.
+        var connString = dbUrl;
+        await using var rawConn = new Npgsql.NpgsqlConnection(connString);
+        await rawConn.OpenAsync();
+
+        bool driftDetected = false;
+        await using (var cmd = rawConn.CreateCommand())
+        {
+            cmd.CommandText = @"
+                SELECT
+                    EXISTS (
                         SELECT 1 FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name = '__EFMigrationsHistory'
-                    ) AS history_exists,
+                    ),
                     EXISTS (
                         SELECT 1 FROM information_schema.tables
                         WHERE table_schema = 'public' AND table_name = 'Users'
-                    ) AS users_table_exists;";
-                using var reader = await cmd.ExecuteReaderAsync();
-                if (await reader.ReadAsync())
-                {
-                    var historyExists = reader.GetBoolean(0);
-                    var usersExists   = reader.GetBoolean(1);
-                    reader.Close();
-
-                    if (historyExists && !usersExists)
-                    {
-                        Log.Warning("Schema drift detected: migration history exists but tables are missing. Clearing migration history to force re-apply.");
-                        using var clearCmd = conn.CreateCommand();
-                        clearCmd.CommandText = "TRUNCATE TABLE \"__EFMigrationsHistory\";";
-                        await clearCmd.ExecuteNonQueryAsync();
-                    }
-                }
+                    );";
+            await using var reader = await cmd.ExecuteReaderAsync();
+            if (await reader.ReadAsync())
+            {
+                var historyExists = reader.GetBoolean(0);
+                var usersExists   = reader.GetBoolean(1);
+                driftDetected     = historyExists && !usersExists;
             }
-            await conn.CloseAsync();
+        }
 
-            db.Database.Migrate();
-            Log.Information("Migrations applied successfully.");
-            break;
-        }
-        catch (Exception ex) when (attempt < maxRetries)
+        if (driftDetected)
         {
-            Log.Warning(ex, "Migration attempt {Attempt} failed. Retrying in 3s...", attempt);
-            Thread.Sleep(TimeSpan.FromSeconds(3));
+            Log.Warning("Schema drift detected: migration history exists but tables are missing. Truncating history to force re-apply.");
+            await using var truncCmd = rawConn.CreateCommand();
+            truncCmd.CommandText = "TRUNCATE TABLE \"__EFMigrationsHistory\";";
+            await truncCmd.ExecuteNonQueryAsync();
         }
+
+        await rawConn.CloseAsync();
+
+        // Step 2: Create a brand-new DbContext (no cached state) and run Migrate().
+        var dbContextOptions = new DbContextOptionsBuilder<AppDbContext>()
+            .UseNpgsql(connString)
+            .Options;
+
+        await using var freshDb = new AppDbContext(dbContextOptions);
+        await freshDb.Database.MigrateAsync();
+
+        Log.Information("Migrations applied successfully.");
+        break;
+    }
+    catch (Exception ex) when (attempt < maxRetries)
+    {
+        Log.Warning(ex, "Migration attempt {Attempt} failed. Retrying in 3s...", attempt);
+        await Task.Delay(TimeSpan.FromSeconds(3));
     }
 }
 
