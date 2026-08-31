@@ -2,6 +2,7 @@ using CyprusInvoiceFixer.Core.Data;
 using CyprusInvoiceFixer.Core.Services;
 using CyprusInvoiceFixer.Core.Services.AI;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
@@ -59,24 +60,22 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // ========== CORS ==========
+// This app is self-hosted on localhost — allow any localhost/127.0.0.1 origin.
+// For a public deployment, replace SetIsOriginAllowed with WithOrigins(frontendUrl).
 var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:3000";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
-    {
-        // In development allow any localhost origin to avoid origin mismatch
-        // (e.g. FRONTEND_URL=http://localhost:3000 but browser sends http://127.0.0.1:3000)
-        var isDev = Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") == "Development"
-                    || builder.Environment.IsDevelopment();
-        if (isDev)
-            policy.SetIsOriginAllowed(_ => true);
-        else
-            policy.WithOrigins(frontendUrl);
-
-        policy.AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials();
-    });
+        policy
+            .SetIsOriginAllowed(origin =>
+            {
+                if (Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+                    return uri.Host is "localhost" or "127.0.0.1" or "::1";
+                return false;
+            })
+            .AllowAnyHeader()
+            .AllowAnyMethod()
+            .AllowCredentials());
 });
 
 // ========== Services ==========
@@ -138,20 +137,26 @@ using (var scope = app.Services.CreateScope())
     db.Database.Migrate();
 }
 
-// Swagger always enabled (API is internal / Docker-only)
+// Global exception handler — runs BEFORE CORS so headers are always present even on 500s
+app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
+{
+    ctx.Response.StatusCode = 500;
+    ctx.Response.ContentType = "application/json";
+    var ex = ctx.Features.Get<IExceptionHandlerFeature>()?.Error;
+    Log.Error(ex, "Unhandled exception");
+    await ctx.Response.WriteAsJsonAsync(new { error = "An unexpected error occurred." });
+}));
+
 app.UseSwagger();
 app.UseSwaggerUI();
-
 app.UseSerilogRequestLogging();
 
-// CORS must be before auth middleware
+// CORS must come before auth
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Health endpoint for setup.sh readiness check
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
-
 app.MapControllers();
 
 app.Run();
