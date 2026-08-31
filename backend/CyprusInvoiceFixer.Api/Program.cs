@@ -60,9 +60,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization();
 
 // ========== CORS ==========
-// This app is self-hosted on localhost — allow any localhost/127.0.0.1 origin.
-// For a public deployment, replace SetIsOriginAllowed with WithOrigins(frontendUrl).
-var frontendUrl = Environment.GetEnvironmentVariable("FRONTEND_URL") ?? "http://localhost:3000";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("FrontendPolicy", policy =>
@@ -85,7 +82,6 @@ builder.Services.AddScoped<IPdfService, PdfService>();
 builder.Services.AddScoped<ICacheService, RedisCacheService>();
 builder.Services.AddScoped<IStripeService, StripeService>();
 
-// AI provider selection
 var aiProvider = Environment.GetEnvironmentVariable("AI_PROVIDER") ?? "openai";
 if (aiProvider == "ollama")
     builder.Services.AddScoped<IAiExtractorService, OllamaExtractorService>();
@@ -130,14 +126,29 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-// ========== Migrations on startup ==========
+// ========== Migrations with retry (fixes DB race condition on cold start) ==========
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
-    db.Database.Migrate();
+    var maxRetries = 10;
+    for (var attempt = 1; attempt <= maxRetries; attempt++)
+    {
+        try
+        {
+            Log.Information("Applying migrations (attempt {Attempt}/{Max})...", attempt, maxRetries);
+            db.Database.Migrate();
+            Log.Information("Migrations applied successfully.");
+            break;
+        }
+        catch (Exception ex) when (attempt < maxRetries)
+        {
+            Log.Warning(ex, "Migration attempt {Attempt} failed. Retrying in 3s...", attempt);
+            Thread.Sleep(TimeSpan.FromSeconds(3));
+        }
+    }
 }
 
-// Global exception handler — runs BEFORE CORS so headers are always present even on 500s
+// Global exception handler — must be first so CORS headers survive 500s
 app.UseExceptionHandler(errApp => errApp.Run(async ctx =>
 {
     ctx.Response.StatusCode = 500;
@@ -151,7 +162,6 @@ app.UseSwagger();
 app.UseSwaggerUI();
 app.UseSerilogRequestLogging();
 
-// CORS must come before auth
 app.UseCors("FrontendPolicy");
 app.UseAuthentication();
 app.UseAuthorization();
